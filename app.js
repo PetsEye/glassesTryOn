@@ -1,10 +1,11 @@
-import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm';
 import { computeGlassesTransform, midpoint } from './src/geometry.js';
 import { prepareGlassesData } from './src/image-processing.js';
 import { createPresetFrames } from './src/frames.js';
 
+const TASKS_VERSION = '0.10.20';
 const CDN = {
-  vision: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm',
+  tasksEsm: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSION}/vision_bundle.mjs`,
+  vision: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSION}/wasm`,
   model: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
 };
 
@@ -192,6 +193,7 @@ async function addGlassesFile(file) {
 
 async function ensureLandmarker(mode) {
   if (!state.landmarker) {
+    const { FaceLandmarker, FilesetResolver } = await import(CDN.tasksEsm);
     const vision = await FilesetResolver.forVisionTasks(CDN.vision);
     state.landmarker = await FaceLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: CDN.model, delegate: 'GPU' },
@@ -297,11 +299,7 @@ async function startCamera() {
   }
 }
 
-async function usePhotoFile(file) {
-  if (!file || !file.type.startsWith('image/')) return;
-  if (state.photoUrl) URL.revokeObjectURL(state.photoUrl);
-  state.photoUrl = URL.createObjectURL(file);
-  const image = await loadImage(state.photoUrl);
+async function showPhoto(image) {
   photo.src = image.src;
   photo.style.display = 'block';
   if (state.cameraStream) {
@@ -313,9 +311,23 @@ async function usePhotoFile(file) {
   stage.classList.add('active', 'photo-mode');
   modePhoto.classList.add('selected');
   modeCamera.classList.remove('selected');
-  await ensureLandmarker('IMAGE');
-  resizeCanvasTo(image.naturalWidth, image.naturalHeight);
-  renderPhoto();
+  try {
+    await ensureLandmarker('IMAGE');
+    resizeCanvasTo(image.naturalWidth, image.naturalHeight);
+    renderPhoto();
+  } catch (error) {
+    console.error(error);
+    setStatus('Could not load face model');
+    setMessage('Could not load the face model. Check your connection and try again.');
+  }
+}
+
+async function usePhotoFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  if (state.photoUrl) URL.revokeObjectURL(state.photoUrl);
+  state.photoUrl = URL.createObjectURL(file);
+  const image = await loadImage(state.photoUrl);
+  await showPhoto(image);
 }
 
 function renderPhoto() {
@@ -353,8 +365,22 @@ function openPhotoPicker() {
   photoInput.click();
 }
 
+function surfaceError(error) {
+  console.error(error);
+  const text = error instanceof Error ? error.message : String(error);
+  setStatus('Something went wrong');
+  setMessage(`Something went wrong: ${text}`);
+}
+
 function init() {
-  state.frames = createPresetFrames();
+  window.addEventListener('error', (event) => surfaceError(event.error || event.message));
+  window.addEventListener('unhandledrejection', (event) => surfaceError(event.reason));
+
+  try {
+    state.frames = createPresetFrames();
+  } catch (error) {
+    console.error(error);
+  }
   renderFrameList();
   updateDetails();
   bindFitControls();
@@ -372,23 +398,7 @@ function init() {
   modeCamera.addEventListener('click', startCamera);
   modePhoto.addEventListener('click', () => {
     if (state.photoUrl) {
-      loadImage(state.photoUrl).then((image) => {
-        photo.src = image.src;
-        photo.style.display = 'block';
-        if (state.cameraStream) {
-          state.cameraStream.getTracks().forEach((track) => track.stop());
-          state.cameraStream = null;
-          state.cameraReady = false;
-        }
-        state.mode = 'photo';
-        stage.classList.add('active', 'photo-mode');
-        modePhoto.classList.add('selected');
-        modeCamera.classList.remove('selected');
-        ensureLandmarker('IMAGE').then(() => {
-          resizeCanvasTo(image.naturalWidth, image.naturalHeight);
-          renderPhoto();
-        });
-      });
+      loadImage(state.photoUrl).then(showPhoto);
     } else {
       openPhotoPicker();
     }

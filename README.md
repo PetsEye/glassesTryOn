@@ -39,7 +39,7 @@ npm run check # syntax check for app.js
 
 Loaded from CDNs at runtime (no build step, no server):
 
-- `@mediapipe/tasks-vision` (Face Landmarker) via jsDelivr.
+- `@mediapipe/tasks-vision@0.10.20` (`vision_bundle.mjs` + wasm) via jsDelivr.
 - The face landmark model `.task` from Google Cloud Storage.
 - Google Fonts (Manrope, DM Mono).
 

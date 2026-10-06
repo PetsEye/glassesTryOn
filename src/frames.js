@@ -4,6 +4,23 @@
 const DESIGN = { width: 200, height: 80, scale: 3 };
 const STROKE = 5;
 
+function roundRectPath(ctx, x, y, width, height, radius) {
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, width, height, radius);
+    return;
+  }
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+}
+
 function drawLens(ctx, cx, cy, shape, color, flip) {
   ctx.save();
   ctx.translate(cx, cy);
@@ -18,7 +35,7 @@ function drawLens(ctx, cx, cy, shape, color, flip) {
   } else if (shape === 'oval') {
     ctx.ellipse(0, 0, 44, 28, 0, 0, Math.PI * 2);
   } else if (shape === 'square') {
-    ctx.roundRect(-38, -27, 76, 54, 12);
+    roundRectPath(ctx, -38, -27, 76, 54, 12);
   } else {
     ctx.moveTo(40, 16);
     ctx.quadraticCurveTo(43, -16, 18, -26);
