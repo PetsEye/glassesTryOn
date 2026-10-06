@@ -1,79 +1,429 @@
 import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm';
+import { computeGlassesTransform, midpoint } from './src/geometry.js';
+import { prepareGlassesData } from './src/image-processing.js';
+import { createPresetFrames } from './src/frames.js';
+
+const CDN = {
+  vision: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm',
+  model: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+};
+
+const IRIS_LEFT = 468;
+const IRIS_RIGHT = 473;
+const BRIDGE = 168;
+const MAX_SPRITE = 900;
 
 const video = document.querySelector('#camera');
+const photo = document.querySelector('#photo');
 const canvas = document.querySelector('#overlay');
 const ctx = canvas.getContext('2d');
 const stage = document.querySelector('#stage');
 const message = document.querySelector('#stageMessage');
 const startButton = document.querySelector('#startButton');
+const photoStartButton = document.querySelector('#photoStartButton');
 const captureButton = document.querySelector('#captureButton');
 const status = document.querySelector('#statusPill span');
 const frameList = document.querySelector('#frameList');
 const frameName = document.querySelector('#frameName');
 const frameFinish = document.querySelector('#frameFinish');
 const frameCount = document.querySelector('#frameCount');
+const glassesInput = document.querySelector('#glassesInput');
+const glassesDrop = document.querySelector('#glassesDrop');
+const photoInput = document.querySelector('#photoInput');
+const modeCamera = document.querySelector('#modeCamera');
+const modePhoto = document.querySelector('#modePhoto');
+const fitSize = document.querySelector('#fitSize');
+const fitSpread = document.querySelector('#fitSpread');
+const fitHeight = document.querySelector('#fitHeight');
+const resetFit = document.querySelector('#resetFit');
 
-const frames = [
-  { name: 'The Tilden', finish: 'Ink black', price: '$120', color: '#171817', shape: 'round' },
-  { name: 'The Marais', finish: 'Honey tortoise', price: '$145', color: '#8b542c', shape: 'cat' },
-  { name: 'The Hiro', finish: 'Soft silver', price: '$160', color: '#a8aaa5', shape: 'square' },
-  { name: 'The Bower', finish: 'Moss green', price: '$135', color: '#3d5140', shape: 'oval' },
-];
-let selected = 0;
-let landmarker;
-let lastVideoTime = -1;
+const state = {
+  frames: [],
+  selected: 0,
+  fit: { scale: 1, spread: 0.215, yOffset: 0 },
+  mode: 'camera',
+  landmarker: null,
+  runningMode: null,
+  lastVideoTime: -1,
+  cameraStream: null,
+  cameraReady: false,
+  photoUrl: null,
+  messageSpan: message.querySelector('span'),
+};
 
-function glassesSvg(frame) {
-  const round = frame.shape === 'round' || frame.shape === 'oval';
-  const cat = frame.shape === 'cat';
-  const left = cat ? 'M8 19 L18 8 L52 11 Q61 12 62 23 Q60 40 45 42 L20 40 Q10 37 8 19Z' : round ? 'M8 21 Q8 7 32 8 Q55 8 57 24 Q55 42 32 43 Q9 41 8 21Z' : 'M8 10 Q8 7 12 7 L52 7 Q57 7 57 12 L55 37 Q54 42 49 42 L16 42 Q10 41 10 36Z';
-  return `<svg viewBox="0 0 112 55" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="${frame.color}" stroke-width="3"><path d="${left}" transform="translate(0 0)"/><path d="${left}" transform="translate(54 0) scale(-1 1)"/><path d="M57 21 Q61 17 67 21"/><path d="M7 13 L1 10 M105 13 L111 10"/></g></svg>`;
+function activeFrame() {
+  return state.frames[state.selected];
 }
 
-function renderFramePicker() {
-  frameList.innerHTML = frames.map((frame, index) => `<button class="frame-option ${index === selected ? 'selected' : ''}" data-index="${index}"><div class="frame-art">${glassesSvg(frame)}</div><span class="frame-label">${frame.name}</span><span class="frame-price">${frame.price}</span></button>`).join('');
-  frameList.querySelectorAll('button').forEach(button => button.addEventListener('click', () => selectFrame(Number(button.dataset.index))));
+function setStatus(text) {
+  status.textContent = text;
+}
+
+function setMessage(text) {
+  if (state.messageSpan) state.messageSpan.textContent = text;
+}
+
+function bindFitControls() {
+  fitSize.value = state.fit.scale;
+  fitSpread.value = state.fit.spread;
+  fitHeight.value = state.fit.yOffset;
+}
+
+function applyFitFromControls() {
+  state.fit.scale = Number(fitSize.value);
+  state.fit.spread = Number(fitSpread.value);
+  state.fit.yOffset = Number(fitHeight.value);
+  if (state.mode === 'photo') renderPhoto();
+}
+
+function resetFitForFrame() {
+  const frame = activeFrame();
+  state.fit.scale = 1;
+  state.fit.spread = frame ? frame.defaultSpread : 0.215;
+  state.fit.yOffset = 0;
+  bindFitControls();
+}
+
+function updateDetails() {
+  const frame = activeFrame();
+  if (!frame) return;
+  frameName.textContent = frame.name;
+  frameFinish.textContent = frame.finish;
+  frameCount.textContent = `${String(state.selected + 1).padStart(2, '0')} / ${String(state.frames.length).padStart(2, '0')}`;
+}
+
+function renderFrameList() {
+  frameList.innerHTML = '';
+  state.frames.forEach((frame, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `frame-option${index === state.selected ? ' selected' : ''}`;
+    button.dataset.index = String(index);
+
+    const art = document.createElement('div');
+    art.className = 'frame-art';
+    frame.sprite.classList.add('frame-thumb');
+    art.appendChild(frame.sprite);
+
+    const label = document.createElement('span');
+    label.className = 'frame-label';
+    label.textContent = frame.name;
+
+    const price = document.createElement('span');
+    price.className = 'frame-price';
+    price.textContent = frame.price;
+
+    button.append(art, label, price);
+    button.addEventListener('click', () => selectFrame(index));
+    frameList.appendChild(button);
+  });
 }
 
 function selectFrame(index) {
-  selected = index;
-  const frame = frames[index];
-  frameName.textContent = frame.name;
-  frameFinish.textContent = frame.finish;
-  frameCount.textContent = `${String(index + 1).padStart(2, '0')} / 04`;
-  renderFramePicker();
+  state.selected = index;
+  resetFitForFrame();
+  updateDetails();
+  renderFrameList();
+  if (state.mode === 'photo') renderPhoto();
 }
 
-function point(landmarks, index) { return landmarks[index]; }
-function drawGlasses(landmarks) {
-  const leftEye = point(landmarks, 33);
-  const rightEye = point(landmarks, 263);
-  const bridge = point(landmarks, 168);
-  const width = Math.abs(rightEye.x - leftEye.x) * canvas.width;
-  const x = ((leftEye.x + rightEye.x) / 2) * canvas.width;
-  const y = bridge.y * canvas.height;
-  const angle = Math.atan2((rightEye.y - leftEye.y) * canvas.height, (rightEye.x - leftEye.x) * canvas.width);
-  const scale = Math.max(1, width / 112);
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+async function fileToSprite(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(url);
+    const ratio = Math.min(1, MAX_SPRITE / (image.naturalWidth || 1));
+    const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+    const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+    const work = document.createElement('canvas');
+    work.width = width;
+    work.height = height;
+    const workCtx = work.getContext('2d', { willReadFrequently: true });
+    workCtx.drawImage(image, 0, 0, width, height);
+    const imageData = workCtx.getImageData(0, 0, width, height);
+    const prepared = prepareGlassesData(imageData.data, width, height);
+    if (!prepared) throw new Error('No glasses detected in that image');
+
+    const sprite = document.createElement('canvas');
+    sprite.width = prepared.width;
+    sprite.height = prepared.height;
+    sprite.getContext('2d').putImageData(
+      new ImageData(prepared.data, prepared.width, prepared.height),
+      0,
+      0,
+    );
+    return sprite;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function addGlassesFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  try {
+    setStatus('Preparing frames');
+    const sprite = await fileToSprite(file);
+    const uploadIndex = state.frames.filter((frame) => frame.kind === 'upload').length + 1;
+    state.frames.push({
+      id: `upload-${Date.now()}`,
+      name: file.name.replace(/\.[^.]+$/, '').slice(0, 22) || `Uploaded ${uploadIndex}`,
+      finish: 'Uploaded image',
+      price: 'Custom',
+      kind: 'upload',
+      sprite,
+      defaultSpread: 0.27,
+      defaultAnchorY: 0.45,
+    });
+    selectFrame(state.frames.length - 1);
+    setStatus(state.mode === 'photo' ? 'Frame applied' : 'Looking for your face');
+  } catch (error) {
+    console.error(error);
+    setStatus('Could not read that image');
+  }
+}
+
+async function ensureLandmarker(mode) {
+  if (!state.landmarker) {
+    const vision = await FilesetResolver.forVisionTasks(CDN.vision);
+    state.landmarker = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: CDN.model, delegate: 'GPU' },
+      runningMode: mode,
+      numFaces: 1,
+    });
+    state.runningMode = mode;
+    return;
+  }
+  if (state.runningMode !== mode) {
+    await state.landmarker.setOptions({ runningMode: mode });
+    state.runningMode = mode;
+  }
+}
+
+function resizeCanvasTo(width, height) {
+  if (!width || !height) return;
+  canvas.width = width;
+  canvas.height = height;
+}
+
+function drawGlasses(result) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const landmarks = result?.faceLandmarks?.[0];
+  const frame = activeFrame();
+  if (!landmarks || !frame) return false;
+
+  const leftEye = landmarks[IRIS_LEFT] || midpoint(landmarks[33], landmarks[133]);
+  const rightEye = landmarks[IRIS_RIGHT] || midpoint(landmarks[362], landmarks[263]);
+  if (!leftEye || !rightEye) return false;
+
+  const transform = computeGlassesTransform({
+    leftEye,
+    rightEye,
+    bridge: landmarks[BRIDGE],
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    spriteWidth: frame.sprite.width,
+    spriteHeight: frame.sprite.height,
+    spread: state.fit.spread,
+    verticalAnchor: frame.defaultAnchorY,
+    scale: state.fit.scale,
+    yOffset: state.fit.yOffset,
+  });
+
   ctx.save();
-  ctx.translate(x, y); ctx.rotate(angle); ctx.scale(scale, scale); ctx.translate(-56, -22);
-  const frame = frames[selected];
-  ctx.strokeStyle = frame.color; ctx.lineWidth = 3.2; ctx.lineJoin = 'round'; ctx.fillStyle = 'rgba(225,235,218,.08)';
-  const shape = frame.shape === 'square' ? (cx) => { ctx.beginPath(); ctx.roundRect(cx, 5, 49, 35, 6); ctx.fill(); ctx.stroke(); } : (cx) => { ctx.beginPath(); ctx.ellipse(cx + 25, 22, 25, 18, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); };
-  shape(2); shape(65); ctx.beginPath(); ctx.moveTo(51, 19); ctx.quadraticCurveTo(56, 15, 61, 19); ctx.moveTo(2, 12); ctx.lineTo(-8, 8); ctx.moveTo(114, 12); ctx.lineTo(124, 8); ctx.stroke();
+  ctx.translate(transform.anchorX, transform.anchorY);
+  ctx.rotate(transform.rotation);
+  ctx.scale(transform.scale, transform.scale);
+  ctx.drawImage(frame.sprite, -transform.spriteBridgeX, -transform.spriteEyeY);
   ctx.restore();
+  return true;
+}
+
+function updateFaceStatus(result) {
+  const detected = Boolean(result?.faceLandmarks?.[0]);
+  setStatus(detected ? 'Face detected' : 'Looking for your face');
+}
+
+function loop() {
+  if (state.mode === 'camera' && state.cameraReady && state.landmarker && video.readyState >= 2) {
+    if (video.currentTime !== state.lastVideoTime) {
+      state.lastVideoTime = video.currentTime;
+      const result = state.landmarker.detectForVideo(video, performance.now());
+      drawGlasses(result);
+      updateFaceStatus(result);
+    }
+  }
+  requestAnimationFrame(loop);
 }
 
 async function startCamera() {
-  startButton.disabled = true; startButton.textContent = 'Loading camera...';
+  startButton.disabled = true;
+  startButton.textContent = 'Starting...';
   try {
-    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm');
-    landmarker = await FaceLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', delegate: 'GPU' }, runningMode: 'VIDEO', numFaces: 1 });
-    video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 960 }, audio: false });
-    await video.play(); stage.classList.add('active'); status.textContent = 'Looking for your face'; resizeCanvas(); requestAnimationFrame(track);
-  } catch (error) { startButton.disabled = false; startButton.textContent = 'Try again'; message.querySelector('span').textContent = 'Camera permission is needed to continue.'; console.error(error); }
+    await ensureLandmarker('VIDEO');
+    if (!state.cameraStream) {
+      state.cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: 1280, height: 960 },
+        audio: false,
+      });
+      video.srcObject = state.cameraStream;
+      await video.play();
+    }
+    state.mode = 'camera';
+    state.cameraReady = true;
+    photo.style.display = 'none';
+    stage.classList.add('active');
+    stage.classList.remove('photo-mode');
+    modeCamera.classList.add('selected');
+    modePhoto.classList.remove('selected');
+    resizeCanvasTo(video.videoWidth, video.videoHeight);
+    setStatus('Looking for your face');
+    if (!state.loopStarted) {
+      state.loopStarted = true;
+      requestAnimationFrame(loop);
+    }
+  } catch (error) {
+    console.error(error);
+    startButton.disabled = false;
+    startButton.textContent = 'Try again';
+    setMessage('Camera permission is needed to continue.');
+  }
 }
 
-function resizeCanvas() { canvas.width = video.videoWidth || 640; canvas.height = video.videoHeight || 480; }
-function track() { if (video.readyState >= 2 && video.currentTime !== lastVideoTime) { lastVideoTime = video.currentTime; const result = landmarker.detectForVideo(video, performance.now()); ctx.clearRect(0, 0, canvas.width, canvas.height); if (result.faceLandmarks?.[0]) { status.textContent = 'Face detected'; drawGlasses(result.faceLandmarks[0]); } else status.textContent = 'Looking for your face'; } requestAnimationFrame(track); }
-captureButton.addEventListener('click', () => { const output = document.createElement('canvas'); output.width = video.videoWidth; output.height = video.videoHeight; const outputCtx = output.getContext('2d'); outputCtx.translate(output.width, 0); outputCtx.scale(-1, 1); outputCtx.drawImage(video, 0, 0); outputCtx.drawImage(canvas, 0, 0); const link = document.createElement('a'); link.download = 'speculate-try-on.png'; link.href = output.toDataURL('image/png'); link.click(); });
-startButton.addEventListener('click', startCamera); window.addEventListener('resize', resizeCanvas); renderFramePicker();
+async function usePhotoFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  if (state.photoUrl) URL.revokeObjectURL(state.photoUrl);
+  state.photoUrl = URL.createObjectURL(file);
+  const image = await loadImage(state.photoUrl);
+  photo.src = image.src;
+  photo.style.display = 'block';
+  if (state.cameraStream) {
+    state.cameraStream.getTracks().forEach((track) => track.stop());
+    state.cameraStream = null;
+    state.cameraReady = false;
+  }
+  state.mode = 'photo';
+  stage.classList.add('active', 'photo-mode');
+  modePhoto.classList.add('selected');
+  modeCamera.classList.remove('selected');
+  await ensureLandmarker('IMAGE');
+  resizeCanvasTo(image.naturalWidth, image.naturalHeight);
+  renderPhoto();
+}
+
+function renderPhoto() {
+  if (state.mode !== 'photo' || !state.landmarker || !photo.complete) return;
+  const result = state.landmarker.detect(photo);
+  drawGlasses(result);
+  updateFaceStatus(result);
+}
+
+function capture() {
+  const usingPhoto = state.mode === 'photo';
+  const source = usingPhoto ? photo : video;
+  const width = usingPhoto ? photo.naturalWidth : video.videoWidth;
+  const height = usingPhoto ? photo.naturalHeight : video.videoHeight;
+  if (!width || !height) return;
+
+  const output = document.createElement('canvas');
+  output.width = width;
+  output.height = height;
+  const outputCtx = output.getContext('2d');
+  if (!usingPhoto) {
+    outputCtx.translate(width, 0);
+    outputCtx.scale(-1, 1);
+  }
+  outputCtx.drawImage(source, 0, 0, width, height);
+  outputCtx.drawImage(canvas, 0, 0, width, height);
+
+  const link = document.createElement('a');
+  link.download = 'speculate-try-on.png';
+  link.href = output.toDataURL('image/png');
+  link.click();
+}
+
+function openPhotoPicker() {
+  photoInput.click();
+}
+
+function init() {
+  state.frames = createPresetFrames();
+  renderFrameList();
+  updateDetails();
+  bindFitControls();
+
+  startButton.addEventListener('click', startCamera);
+  photoStartButton.addEventListener('click', openPhotoPicker);
+  captureButton.addEventListener('click', capture);
+  resetFit.addEventListener('click', () => {
+    resetFitForFrame();
+    if (state.mode === 'photo') renderPhoto();
+  });
+
+  [fitSize, fitSpread, fitHeight].forEach((input) => input.addEventListener('input', applyFitFromControls));
+
+  modeCamera.addEventListener('click', startCamera);
+  modePhoto.addEventListener('click', () => {
+    if (state.photoUrl) {
+      loadImage(state.photoUrl).then((image) => {
+        photo.src = image.src;
+        photo.style.display = 'block';
+        if (state.cameraStream) {
+          state.cameraStream.getTracks().forEach((track) => track.stop());
+          state.cameraStream = null;
+          state.cameraReady = false;
+        }
+        state.mode = 'photo';
+        stage.classList.add('active', 'photo-mode');
+        modePhoto.classList.add('selected');
+        modeCamera.classList.remove('selected');
+        ensureLandmarker('IMAGE').then(() => {
+          resizeCanvasTo(image.naturalWidth, image.naturalHeight);
+          renderPhoto();
+        });
+      });
+    } else {
+      openPhotoPicker();
+    }
+  });
+
+  photoInput.addEventListener('change', () => {
+    if (photoInput.files?.[0]) usePhotoFile(photoInput.files[0]);
+    photoInput.value = '';
+  });
+
+  glassesInput.addEventListener('change', () => {
+    if (glassesInput.files?.[0]) addGlassesFile(glassesInput.files[0]);
+    glassesInput.value = '';
+  });
+
+  ['dragenter', 'dragover'].forEach((type) =>
+    glassesDrop.addEventListener(type, (event) => {
+      event.preventDefault();
+      glassesDrop.classList.add('over');
+    }),
+  );
+  ['dragleave', 'drop'].forEach((type) =>
+    glassesDrop.addEventListener(type, (event) => {
+      event.preventDefault();
+      glassesDrop.classList.remove('over');
+    }),
+  );
+  glassesDrop.addEventListener('drop', (event) => {
+    const file = event.dataTransfer?.files?.[0];
+    if (file) addGlassesFile(file);
+  });
+
+  window.addEventListener('resize', () => {
+    if (state.mode === 'camera') resizeCanvasTo(video.videoWidth, video.videoHeight);
+  });
+}
+
+init();

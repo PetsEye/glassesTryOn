@@ -38,8 +38,8 @@ Open `http://localhost:8000` in a browser with camera support.
 
 Test frequently and commit frequently. Before each commit:
 
-1. Run `node --check app.js`.
-2. Start the local server and manually test camera permission, face detection, frame switching, and screenshot export when the change affects the UI or tracking.
+1. Run `npm run check` (syntax) and `npm test` (geometry and image-processing units).
+2. Start the local server and manually test camera permission, face detection, frame switching, glasses upload, fit sliders, photo mode, and screenshot export when the change affects the UI or tracking.
 3. Inspect `git diff` and `git status` to ensure only intended files are included.
 4. Commit one coherent change with a concise message.
 

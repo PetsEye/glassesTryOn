@@ -26,30 +26,58 @@
         <div class="stage-wrap">
           <div class="stage" id="stage">
             <video id="camera" autoplay muted playsinline></video>
+            <img id="photo" alt="Uploaded portrait" />
             <canvas id="overlay"></canvas>
             <div class="stage-message" id="stageMessage">
               <div class="camera-icon">◉</div>
               <strong>See yourself in the frame</strong>
               <span>Camera access stays on this device.</span>
-              <button class="primary" id="startButton">Enable camera</button>
+              <div class="stage-actions">
+                <button class="primary" id="startButton">Enable camera</button>
+                <button class="ghost" id="photoStartButton">Upload a photo</button>
+              </div>
             </div>
             <div class="scan-line"></div>
             <div class="status-pill" id="statusPill"><i></i><span>Waiting for camera</span></div>
             <button class="capture" id="captureButton" aria-label="Save a photo">＋</button>
           </div>
-          <p class="stage-caption"><span>01</span> Live fitting preview <span class="caption-right">Drag to explore</span></p>
+          <p class="stage-caption"><span>01</span> Fitting preview <span class="caption-right">Live or photo</span></p>
         </div>
 
         <aside class="controls">
           <div class="control-heading"><span>SELECT A FRAME</span><span id="frameCount">01 / 04</span></div>
           <div class="frame-list" id="frameList"></div>
 
+          <label class="dropzone" id="glassesDrop">
+            <input type="file" id="glassesInput" accept="image/*" hidden />
+            <strong>+ Add your own frames</strong>
+            <span>Drop a glasses image or browse. Background is removed on-device.</span>
+          </label>
+
+          <div class="rule"></div>
+          <div class="fit-panel">
+            <div class="control-heading"><span>FINE-TUNE THE FIT</span><button type="button" class="link" id="resetFit">Reset</button></div>
+            <label class="slider"><span>Size</span><input id="fitSize" type="range" min="0.6" max="1.6" step="0.01" value="1" /></label>
+            <label class="slider"><span>Lens spread</span><input id="fitSpread" type="range" min="0.14" max="0.36" step="0.005" value="0.215" /></label>
+            <label class="slider"><span>Height</span><input id="fitHeight" type="range" min="-0.2" max="0.2" step="0.005" value="0" /></label>
+          </div>
+
+          <div class="rule"></div>
+          <div class="preview-mode">
+            <div class="control-heading"><span>PREVIEW</span></div>
+            <div class="segmented">
+              <button type="button" id="modeCamera" class="selected">Live camera</button>
+              <button type="button" id="modePhoto">Photo</button>
+            </div>
+          </div>
+
           <div class="rule"></div>
           <div class="details">
             <div><span class="label">CURRENT FRAME</span><strong id="frameName">The Tilden</strong></div>
             <div><span class="label">FINISH</span><strong id="frameFinish">Ink black</strong></div>
           </div>
-          <p class="tip"><span>✦</span> Face the camera and make sure your eyes are visible for the best fit.</p>
+          <p class="tip"><span>✦</span> Face the camera and keep your eyes visible for the best fit.</p>
+          <input type="file" id="photoInput" accept="image/*" hidden />
         </aside>
       </section>
 

@@ -1,0 +1,11 @@
+{
+  "name": "glasses-try-on",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Open-source, local-first browser glasses try-on tool.",
+  "scripts": {
+    "check": "node --check app.js",
+    "test": "node --test"
+  }
+}
