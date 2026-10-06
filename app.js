@@ -1,6 +1,12 @@
-import { computeGlassesTransform, midpoint } from './src/geometry.js?v=0.3';
-import { prepareGlassesData } from './src/image-processing.js?v=0.3';
-import { createPresetFrames } from './src/frames.js?v=0.3';
+import {
+  computeGlassesTransform,
+  computeTempleGeometry,
+  estimateYaw,
+  midpoint,
+  rgbToCss,
+} from './src/geometry.js?v=0.4';
+import { averageColor, prepareGlassesData } from './src/image-processing.js?v=0.4';
+import { createPresetFrames } from './src/frames.js?v=0.4';
 
 const TASKS_VERSION = '0.10.20';
 const CDN = {
@@ -28,6 +34,8 @@ async function loadTasks() {
 const IRIS_LEFT = 468;
 const IRIS_RIGHT = 473;
 const BRIDGE = 168;
+const EAR_LEFT = 234;
+const EAR_RIGHT = 454;
 const MAX_SPRITE = 900;
 
 const video = document.querySelector('#camera');
@@ -53,6 +61,9 @@ const fitSize = document.querySelector('#fitSize');
 const fitSpread = document.querySelector('#fitSpread');
 const fitHeight = document.querySelector('#fitHeight');
 const resetFit = document.querySelector('#resetFit');
+const scene3d = document.querySelector('#scene3d');
+const modelInput = document.querySelector('#modelInput');
+const modelDrop = document.querySelector('#modelDrop');
 
 const state = {
   frames: [],
@@ -65,6 +76,8 @@ const state = {
   cameraStream: null,
   cameraReady: false,
   photoUrl: null,
+  three: null,
+  modelLoaded: false,
   messageSpan: message.querySelector('span'),
 };
 
@@ -119,8 +132,15 @@ function renderFrameList() {
 
     const art = document.createElement('div');
     art.className = 'frame-art';
-    frame.sprite.classList.add('frame-thumb');
-    art.appendChild(frame.sprite);
+    if (frame.sprite) {
+      frame.sprite.classList.add('frame-thumb');
+      art.appendChild(frame.sprite);
+    } else {
+      const badge = document.createElement('span');
+      badge.className = 'frame-art-3d';
+      badge.textContent = '3D';
+      art.appendChild(badge);
+    }
 
     const label = document.createElement('span');
     label.className = 'frame-label';
@@ -177,7 +197,8 @@ async function fileToSprite(file) {
       0,
       0,
     );
-    return sprite;
+    const color = averageColor(prepared.data);
+    return { sprite, color };
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -187,7 +208,7 @@ async function addGlassesFile(file) {
   if (!file || !file.type.startsWith('image/')) return;
   try {
     setStatus('Preparing frames');
-    const sprite = await fileToSprite(file);
+    const { sprite, color } = await fileToSprite(file);
     const uploadIndex = state.frames.filter((frame) => frame.kind === 'upload').length + 1;
     state.frames.push({
       id: `upload-${Date.now()}`,
@@ -196,6 +217,10 @@ async function addGlassesFile(file) {
       price: 'Custom',
       kind: 'upload',
       sprite,
+      templeColor: rgbToCss(color),
+      hingeLeftX: 0.02,
+      hingeRightX: 0.98,
+      hingeY: 0.45,
       defaultSpread: 0.27,
       defaultAnchorY: 0.45,
     });
@@ -215,6 +240,7 @@ async function ensureLandmarker(mode) {
       baseOptions: { modelAssetPath: CDN.model, delegate: 'GPU' },
       runningMode: mode,
       numFaces: 1,
+      outputFacialTransformationMatrixes: true,
     });
     state.runningMode = mode;
     return;
@@ -229,6 +255,50 @@ function resizeCanvasTo(width, height) {
   if (!width || !height) return;
   canvas.width = width;
   canvas.height = height;
+}
+
+function spritePointToCanvas(transform, x, y) {
+  const dx = (x - transform.spriteBridgeX) * transform.scale;
+  const dy = (y - transform.spriteEyeY) * transform.scale;
+  const cos = Math.cos(transform.rotation);
+  const sin = Math.sin(transform.rotation);
+  return {
+    x: transform.anchorX + dx * cos - dy * sin,
+    y: transform.anchorY + dx * sin + dy * cos,
+  };
+}
+
+function drawTemple(hinge, ear, side, yaw, thickness, color) {
+  const geometry = computeTempleGeometry({ hinge, ear, side, yaw, thickness });
+  ctx.save();
+  ctx.globalAlpha = geometry.alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = geometry.width;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(geometry.start.x, geometry.start.y);
+  ctx.lineTo(geometry.end.x, geometry.end.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawTemples(landmarks, transform, frame) {
+  const earLeft = landmarks[EAR_LEFT];
+  const earRight = landmarks[EAR_RIGHT];
+  if (!earLeft || !earRight) return;
+
+  const yaw = estimateYaw({ nose: landmarks[1] || landmarks[BRIDGE], leftEdge: earLeft, rightEdge: earRight });
+  const leftNear = (earLeft.z ?? 0) <= (earRight.z ?? 0);
+  const hingeY = (frame.hingeY ?? frame.defaultAnchorY) * frame.sprite.height;
+  const leftHinge = spritePointToCanvas(transform, (frame.hingeLeftX ?? 0.02) * frame.sprite.width, hingeY);
+  const rightHinge = spritePointToCanvas(transform, (frame.hingeRightX ?? 0.98) * frame.sprite.width, hingeY);
+  const leftEar = { x: earLeft.x * canvas.width, y: earLeft.y * canvas.height };
+  const rightEar = { x: earRight.x * canvas.width, y: earRight.y * canvas.height };
+  const thickness = Math.max(2, frame.sprite.height * transform.scale * 0.05);
+  const color = frame.templeColor || '#17181a';
+
+  drawTemple(leftHinge, leftEar, leftNear ? 'near' : 'far', yaw, thickness, color);
+  drawTemple(rightHinge, rightEar, leftNear ? 'far' : 'near', yaw, thickness, color);
 }
 
 function drawGlasses(result) {
@@ -255,6 +325,8 @@ function drawGlasses(result) {
     yOffset: state.fit.yOffset,
   });
 
+  drawTemples(landmarks, transform, frame);
+
   ctx.save();
   ctx.translate(transform.anchorX, transform.anchorY);
   ctx.rotate(transform.rotation);
@@ -269,13 +341,126 @@ function updateFaceStatus(result) {
   setStatus(detected ? 'Face detected' : 'Looking for your face');
 }
 
+function is3DFrame() {
+  return activeFrame()?.kind === 'model3d';
+}
+
+async function ensureThree() {
+  if (state.three) return state.three;
+  const THREE = await import('three');
+  const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+  const renderer = new THREE.WebGLRenderer({ canvas: scene3d, alpha: true, antialias: true, preserveDrawingBuffer: true });
+  renderer.setClearColor(0x000000, 0);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
+  camera.position.z = 0;
+  scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+  keyLight.position.set(0, 0, 1);
+  scene.add(keyLight);
+  const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
+  fillLight.position.set(0, 0, -1);
+  scene.add(fillLight);
+  const group = new THREE.Group();
+  group.matrixAutoUpdate = false;
+  const pivot = new THREE.Group();
+  group.add(pivot);
+  scene.add(group);
+  state.three = { THREE, GLTFLoader, renderer, scene, camera, group, pivot, baseScale: 1 };
+  return state.three;
+}
+
+async function addModel3D(file) {
+  if (!file) return;
+  try {
+    setStatus('Loading 3D model');
+    const three = await ensureThree();
+    const url = URL.createObjectURL(file);
+    let gltf;
+    try {
+      gltf = await new three.GLTFLoader().loadAsync(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    three.pivot.clear();
+    gltf.scene.traverse((node) => {
+      node.frustumCulled = false;
+    });
+    three.pivot.add(gltf.scene);
+
+    const box = new three.THREE.Box3().setFromObject(gltf.scene);
+    const size = new three.THREE.Vector3();
+    const center = new three.THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    gltf.scene.position.sub(center);
+    three.baseScale = 14 / Math.max(size.x, 0.0001);
+    state.modelLoaded = true;
+
+    const existing = state.frames.findIndex((frame) => frame.kind === 'model3d');
+    const frame = {
+      id: `model-${Date.now()}`,
+      name: file.name.replace(/\.[^.]+$/, '').slice(0, 22) || '3D model',
+      finish: '3D model',
+      price: 'Custom',
+      kind: 'model3d',
+      defaultSpread: 0.215,
+      defaultAnchorY: 0.5,
+    };
+    if (existing >= 0) state.frames[existing] = frame;
+    else state.frames.push(frame);
+    state.selected = existing >= 0 ? existing : state.frames.length - 1;
+    resetFitForFrame();
+    renderFrameList();
+    updateDetails();
+    if (state.mode === 'photo') renderPhoto();
+    setStatus('3D model ready');
+  } catch (error) {
+    console.error(error);
+    setStatus('Could not load that model');
+  }
+}
+
+function render3D(result) {
+  const three = state.three;
+  if (!three || !state.modelLoaded) return;
+  const matrix = result?.facialTransformationMatrixes?.[0]?.data;
+  if (matrix) {
+    const m = new three.THREE.Matrix4().fromArray(matrix);
+    m.scale(new three.THREE.Vector3(100, 100, 100));
+    three.group.matrix.copy(m);
+  }
+  three.pivot.scale.setScalar(three.baseScale * state.fit.scale);
+  three.pivot.position.set(0, state.fit.yOffset * 30, 0);
+  const width = canvas.width;
+  const height = canvas.height;
+  if (canvas.width !== scene3d.width || canvas.height !== scene3d.height) {
+    three.renderer.setSize(width, height, false);
+    three.camera.aspect = width / height;
+    three.camera.updateProjectionMatrix();
+  }
+  three.renderer.render(three.scene, three.camera);
+}
+
+function renderDetection(result) {
+  updateFaceStatus(result);
+  if (is3DFrame()) {
+    scene3d.style.display = 'block';
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    render3D(result);
+  } else {
+    scene3d.style.display = 'none';
+    drawGlasses(result);
+  }
+}
+
 function loop() {
   if (state.mode === 'camera' && state.cameraReady && state.landmarker && video.readyState >= 2) {
     if (video.currentTime !== state.lastVideoTime) {
       state.lastVideoTime = video.currentTime;
       const result = state.landmarker.detectForVideo(video, performance.now());
-      drawGlasses(result);
-      updateFaceStatus(result);
+      renderDetection(result);
     }
   }
   requestAnimationFrame(loop);
@@ -349,8 +534,7 @@ async function usePhotoFile(file) {
 function renderPhoto() {
   if (state.mode !== 'photo' || !state.landmarker || !photo.complete) return;
   const result = state.landmarker.detect(photo);
-  drawGlasses(result);
-  updateFaceStatus(result);
+  renderDetection(result);
 }
 
 function capture() {
@@ -369,7 +553,8 @@ function capture() {
     outputCtx.scale(-1, 1);
   }
   outputCtx.drawImage(source, 0, 0, width, height);
-  outputCtx.drawImage(canvas, 0, 0, width, height);
+  const overlaySource = is3DFrame() && state.three && state.modelLoaded ? scene3d : canvas;
+  outputCtx.drawImage(overlaySource, 0, 0, width, height);
 
   const link = document.createElement('a');
   link.download = 'speculate-try-on.png';
@@ -428,6 +613,27 @@ function init() {
   glassesInput.addEventListener('change', () => {
     if (glassesInput.files?.[0]) addGlassesFile(glassesInput.files[0]);
     glassesInput.value = '';
+  });
+
+  modelInput.addEventListener('change', () => {
+    if (modelInput.files?.[0]) addModel3D(modelInput.files[0]);
+    modelInput.value = '';
+  });
+  ['dragenter', 'dragover'].forEach((type) =>
+    modelDrop.addEventListener(type, (event) => {
+      event.preventDefault();
+      modelDrop.classList.add('over');
+    }),
+  );
+  ['dragleave', 'drop'].forEach((type) =>
+    modelDrop.addEventListener(type, (event) => {
+      event.preventDefault();
+      modelDrop.classList.remove('over');
+    }),
+  );
+  modelDrop.addEventListener('drop', (event) => {
+    const file = event.dataTransfer?.files?.[0];
+    if (file) addModel3D(file);
   });
 
   ['dragenter', 'dragover'].forEach((type) =>

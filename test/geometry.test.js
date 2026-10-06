@@ -4,7 +4,9 @@ import {
   angleBetween,
   clamp,
   computeGlassesTransform,
+  computeTempleGeometry,
   distance,
+  estimateYaw,
   interpolate,
   midpoint,
 } from '../src/geometry.js';
@@ -73,6 +75,55 @@ test('rotation follows the eye line', () => {
   });
   assert.ok(Math.abs(t.rotation - Math.atan2(100, 200)) < 1e-9);
   assert.ok(t.rotationDeg > 0);
+});
+
+test('estimateYaw is zero when the nose is centered', () => {
+  const yaw = estimateYaw({
+    nose: { x: 0.5, y: 0.5 },
+    leftEdge: { x: 0.2, y: 0.5 },
+    rightEdge: { x: 0.8, y: 0.5 },
+  });
+  assert.ok(Math.abs(yaw) < 1e-9);
+});
+
+test('estimateYaw is signed by the direction the head turns', () => {
+  const yaw = estimateYaw({
+    nose: { x: 0.6, y: 0.5 },
+    leftEdge: { x: 0.2, y: 0.5 },
+    rightEdge: { x: 0.8, y: 0.5 },
+  });
+  assert.ok(yaw < 0);
+  assert.ok(Math.abs(yaw - -1 / 3) < 1e-9);
+});
+
+test('estimateYaw stays within [-1, 1]', () => {
+  const yaw = estimateYaw({
+    nose: { x: 5, y: 0 },
+    leftEdge: { x: 0, y: 0 },
+    rightEdge: { x: 1, y: 0 },
+  });
+  assert.ok(yaw >= -1 && yaw <= 1);
+});
+
+test('near temple extends past the ear, far temple is shortened', () => {
+  const near = computeTempleGeometry({ hinge: { x: 0, y: 0 }, ear: { x: 10, y: 0 }, side: 'near' });
+  const far = computeTempleGeometry({ hinge: { x: 0, y: 0 }, ear: { x: 10, y: 0 }, side: 'far' });
+  assert.ok(near.end.x > 10);
+  assert.ok(far.end.x < 10);
+  assert.equal(near.alpha, 1);
+});
+
+test('far temple fades as yaw grows', () => {
+  const frontal = computeTempleGeometry({ hinge: { x: 0, y: 0 }, ear: { x: 10, y: 0 }, side: 'far', yaw: 0 });
+  const turned = computeTempleGeometry({ hinge: { x: 0, y: 0 }, ear: { x: 10, y: 0 }, side: 'far', yaw: 0.5 });
+  assert.ok(turned.alpha < frontal.alpha);
+  assert.ok(turned.alpha >= 0.12);
+});
+
+test('temple width scales with the provided thickness', () => {
+  const thin = computeTempleGeometry({ hinge: { x: 0, y: 0 }, ear: { x: 10, y: 0 }, thickness: 4 });
+  const thick = computeTempleGeometry({ hinge: { x: 0, y: 0 }, ear: { x: 10, y: 0 }, thickness: 8 });
+  assert.ok(thick.width > thin.width);
 });
 
 test('vertical offset moves the anchor by a fraction of pupil distance', () => {

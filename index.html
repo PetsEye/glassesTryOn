@@ -10,6 +10,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
   </head>
   <body>
     <main class="shell">
@@ -30,6 +38,7 @@
             <video id="camera" autoplay muted playsinline></video>
             <img id="photo" alt="Uploaded portrait" />
             <canvas id="overlay"></canvas>
+            <canvas id="scene3d"></canvas>
             <div class="stage-message" id="stageMessage">
               <div class="camera-icon">◉</div>
               <strong>See yourself in the frame</strong>
@@ -56,6 +65,12 @@
             <span>Drop a glasses image or browse. Background is removed on-device.</span>
           </label>
 
+          <label class="dropzone" id="modelDrop">
+            <input type="file" id="modelInput" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" hidden />
+            <strong>+ Import a 3D model (.glb)</strong>
+            <span>Experimental — best with a model built for MediaPipe's canonical face. Gives real side views.</span>
+          </label>
+
           <div class="rule"></div>
           <div class="fit-panel">
             <div class="control-heading"><span>FINE-TUNE THE FIT</span><button type="button" class="link" id="resetFit">Reset</button></div>
@@ -79,12 +94,13 @@
             <div><span class="label">FINISH</span><strong id="frameFinish">Ink black</strong></div>
           </div>
           <p class="tip"><span>✦</span> Face the camera and keep your eyes visible for the best fit.</p>
+          <p class="hint" id="glassesHint"><span>◎</span> Already wearing glasses? Take them off first — reflections and frames can throw off the tracking.</p>
           <input type="file" id="photoInput" accept="image/*" hidden />
         </aside>
       </section>
 
-      <footer><span>Built for better decisions, not better faces.</span><span class="mono">v0.3 / LOCAL FIRST</span></footer>
+      <footer><span>Built for better decisions, not better faces.</span><span class="mono">v0.4 / LOCAL FIRST</span></footer>
     </main>
-    <script type="module" src="app.js?v=0.3"></script>
+    <script type="module" src="app.js?v=0.4"></script>
   </body>
 </html>

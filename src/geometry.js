@@ -73,3 +73,37 @@ export function interpolate(a, b, t) {
 export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
+
+/**
+ * Rough yaw signal in [-1, 1] from the nose position between the two face
+ * edges. Positive means the head turned toward the image-left edge.
+ */
+export function estimateYaw({ leftEdge, rightEdge, nose }) {
+  const dLeft = distance(nose, leftEdge);
+  const dRight = distance(nose, rightEdge);
+  const sum = dLeft + dRight || 1;
+  return clamp((dRight - dLeft) / sum, -1, 1);
+}
+
+/**
+ * Geometry for a synthetic temple arm running from a frame hinge to the ear.
+ * The near-side arm extends past the ear; the far-side arm is shortened and
+ * faded so it reads as hidden behind the face as the head turns.
+ */
+export function computeTempleGeometry({ hinge, ear, side = 'near', yaw = 0, thickness = 6 }) {
+  const dx = ear.x - hinge.x;
+  const dy = ear.y - hinge.y;
+  const length = Math.max(Math.hypot(dx, dy), 1);
+  const ux = dx / length;
+  const uy = dy / length;
+  const near = side === 'near';
+  const extend = length * (near ? 1.15 : 0.82);
+  const end = { x: hinge.x + ux * extend, y: hinge.y + uy * extend };
+  const alpha = near ? 1 : clamp(1 - Math.abs(yaw) * 1.7, 0.12, 1);
+  const width = thickness * (near ? 1 : 0.82);
+  return { start: hinge, end, angle: Math.atan2(dy, dx), length: extend, width, alpha };
+}
+
+export function rgbToCss({ r, g, b }) {
+  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+}

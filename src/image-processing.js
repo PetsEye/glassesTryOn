@@ -92,6 +92,27 @@ export function keyOutBackground(
   return out;
 }
 
+/**
+ * Average color of the visible (non-transparent) pixels, used to tint
+ * synthetic temple arms to match the uploaded frame.
+ */
+export function averageColor(data, { alphaThreshold = 40 } = {}) {
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let n = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] > alphaThreshold) {
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+      n += 1;
+    }
+  }
+  if (n === 0) return { r: 23, g: 24, b: 26 };
+  return { r: r / n, g: g / n, b: b / n };
+}
+
 export function findContentBounds(data, width, height, { alphaThreshold = DEFAULT_ALPHA_THRESHOLD } = {}) {
   let minX = width;
   let minY = height;

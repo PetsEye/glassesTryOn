@@ -59,13 +59,6 @@ function drawPreset(ctx, shape, color) {
   ctx.lineCap = 'round';
 
   ctx.beginPath();
-  ctx.moveTo(leftCx - 36, 28);
-  ctx.lineTo(6, 20);
-  ctx.moveTo(rightCx + 36, 28);
-  ctx.lineTo(W - 6, 20);
-  ctx.stroke();
-
-  ctx.beginPath();
   ctx.moveTo(leftCx + 34, 24);
   ctx.quadraticCurveTo(W / 2, 10, rightCx - 34, 24);
   ctx.stroke();
@@ -101,5 +94,9 @@ export function createPresetFrames() {
     sprite: renderPreset(preset.shape, preset.color),
     defaultSpread: 0.215,
     defaultAnchorY: 0.5,
+    templeColor: preset.color,
+    hingeLeftX: 0.075,
+    hingeRightX: 0.925,
+    hingeY: 0.5,
   }));
 }

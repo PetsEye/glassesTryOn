@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  averageColor,
   cropData,
   estimateBackgroundColor,
   findContentBounds,
@@ -106,4 +107,17 @@ test('prepareGlassesData preserves an existing alpha cutout', () => {
 test('prepareGlassesData returns null when nothing is visible', () => {
   const data = makeImage(10, 10, [0, 0, 0, 0]);
   assert.equal(prepareGlassesData(data, 10, 10), null);
+});
+
+test('averageColor ignores transparent pixels', () => {
+  const width = 4;
+  const data = makeImage(width, 4, [0, 0, 0, 0]);
+  fillRect(data, width, { x: 0, y: 0, width: 2, height: 2 }, [100, 50, 25, 255]);
+  const color = averageColor(data);
+  assert.deepEqual(color, { r: 100, g: 50, b: 25 });
+});
+
+test('averageColor falls back to a dark default when empty', () => {
+  const color = averageColor(makeImage(4, 4, [0, 0, 0, 0]));
+  assert.deepEqual(color, { r: 23, g: 24, b: 26 });
 });

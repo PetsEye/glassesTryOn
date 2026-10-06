@@ -53,9 +53,17 @@ For changes to image-based fitting, test at minimum with:
 
 ## Near-Term Implementation Sequence
 
-1. Replace procedural frames with a glasses image upload flow.
-2. Normalize the uploaded image and identify the frame bounds, bridge, and lens centers.
-3. Fit the image to the user's eye landmarks while preserving its aspect ratio.
-4. Add rotation, scale, and perspective correction as the head turns.
-5. Add photo upload mode in addition to the live camera.
-6. Add automated landmark and geometry tests before introducing a backend or generative model.
+Done:
+
+1. Glasses image upload flow with on-device background removal (`src/image-processing.js`).
+2. Normalization and trimming to frame bounds; lens centers default to the middle quarters.
+3. Landmark-based fitting: pupil distance drives scale, eye roll drives rotation (`src/geometry.js`).
+4. Synthetic temple arms anchored to ear landmarks with yaw-based near/far visibility.
+5. Photo upload mode alongside the live camera.
+6. Automated geometry and image-processing tests (`npm test`).
+
+Next:
+
+1. Auto-detect lens centers from the uploaded image instead of the 27%/73% default.
+2. Improve the optional 3D `.glb` path (model placement/tuning for canonical face space).
+3. Optional backend or generative enhancement only after the deterministic fit is solid.
