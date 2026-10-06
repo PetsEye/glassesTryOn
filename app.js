@@ -1,13 +1,29 @@
-import { computeGlassesTransform, midpoint } from './src/geometry.js';
-import { prepareGlassesData } from './src/image-processing.js';
-import { createPresetFrames } from './src/frames.js';
+import { computeGlassesTransform, midpoint } from './src/geometry.js?v=0.3';
+import { prepareGlassesData } from './src/image-processing.js?v=0.3';
+import { createPresetFrames } from './src/frames.js?v=0.3';
 
 const TASKS_VERSION = '0.10.20';
 const CDN = {
-  tasksEsm: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSION}/vision_bundle.mjs`,
+  tasksEsm: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSION}/+esm`,
+  tasksBundle: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSION}/vision_bundle.mjs`,
   vision: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VERSION}/wasm`,
   model: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
 };
+
+async function loadTasks() {
+  const candidates = [CDN.tasksEsm, CDN.tasksBundle];
+  let lastError;
+  for (const url of candidates) {
+    try {
+      const module = await import(url);
+      if (module.FaceLandmarker && module.FilesetResolver) return module;
+      lastError = new Error(`Missing exports from ${url}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('Could not load the face model library');
+}
 
 const IRIS_LEFT = 468;
 const IRIS_RIGHT = 473;
@@ -193,7 +209,7 @@ async function addGlassesFile(file) {
 
 async function ensureLandmarker(mode) {
   if (!state.landmarker) {
-    const { FaceLandmarker, FilesetResolver } = await import(CDN.tasksEsm);
+    const { FaceLandmarker, FilesetResolver } = await loadTasks();
     const vision = await FilesetResolver.forVisionTasks(CDN.vision);
     state.landmarker = await FaceLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: CDN.model, delegate: 'GPU' },
