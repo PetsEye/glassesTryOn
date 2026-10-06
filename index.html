@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Speculate | Virtual glasses try-on</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <a class="wordmark" href="/">SPECULATE<span>.</span></a>
+        <div class="top-note"><i></i> Runs privately in your browser</div>
+      </header>
+
+      <section class="intro">
+        <p class="eyebrow">THE OPEN-SOURCE OPTICAL FITTING ROOM</p>
+        <h1>Find the frame<br /><em>that feels like you.</em></h1>
+        <p class="lede">Try on glasses in real time. Your face stays yours; we only add the frames.</p>
+      </section>
+
+      <section class="try-on-layout">
+        <div class="stage-wrap">
+          <div class="stage" id="stage">
+            <video id="camera" autoplay muted playsinline></video>
+            <canvas id="overlay"></canvas>
+            <div class="stage-message" id="stageMessage">
+              <div class="camera-icon">◉</div>
+              <strong>See yourself in the frame</strong>
+              <span>Camera access stays on this device.</span>
+              <button class="primary" id="startButton">Enable camera</button>
+            </div>
+            <div class="scan-line"></div>
+            <div class="status-pill" id="statusPill"><i></i><span>Waiting for camera</span></div>
+            <button class="capture" id="captureButton" aria-label="Save a photo">＋</button>
+          </div>
+          <p class="stage-caption"><span>01</span> Live fitting preview <span class="caption-right">Drag to explore</span></p>
+        </div>
+
+        <aside class="controls">
+          <div class="control-heading"><span>SELECT A FRAME</span><span id="frameCount">01 / 04</span></div>
+          <div class="frame-list" id="frameList"></div>
+
+          <div class="rule"></div>
+          <div class="details">
+            <div><span class="label">CURRENT FRAME</span><strong id="frameName">The Tilden</strong></div>
+            <div><span class="label">FINISH</span><strong id="frameFinish">Ink black</strong></div>
+          </div>
+          <p class="tip"><span>✦</span> Face the camera and make sure your eyes are visible for the best fit.</p>
+        </aside>
+      </section>
+
+      <footer><span>Built for better decisions, not better faces.</span><span class="mono">v0.1 / LOCAL FIRST</span></footer>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
